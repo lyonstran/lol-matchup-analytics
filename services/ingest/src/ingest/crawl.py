@@ -1,15 +1,16 @@
 import time
 from collections import deque
+
 from common import s3
 from common.riot_client import RiotClient
 
 # --- config ---
-SEED_GAME_NAME = "jefff buckley"   # same Riot ID as test_riot_client.py
+SEED_GAME_NAME = "jefff buckley"
 SEED_TAG_LINE = "GRACE"
 REGION = "americas"
 QUEUE = 420                   # ranked solo/duo
 MATCHES_PER_PLAYER = 10
-MAX_MATCHES = 100              # small for the first run — bump up once it works
+MAX_MATCHES = 100
 
 MATCH_PREFIX = "raw/matches"
 
@@ -32,8 +33,8 @@ def main():
     account = client.get_account_by_riot_id(SEED_GAME_NAME, SEED_TAG_LINE)
     seed_puuid = account["puuid"]
 
-    frontier = deque([seed_puuid])     # PUUIDs still to crawl
-    seen_puuids = {seed_puuid}         # PUUIDs already queued
+    frontier = deque([seed_puuid])
+    seen_puuids = {seed_puuid}
     fetched = 0
     start = time.monotonic()
 
@@ -52,7 +53,6 @@ def main():
             save_match(match_id, match)
             fetched += 1
 
-            # harvest the 9 other players into the frontier
             for p in match["metadata"]["participants"]:
                 if p not in seen_puuids:
                     seen_puuids.add(p)
