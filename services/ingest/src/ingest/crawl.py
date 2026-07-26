@@ -10,7 +10,7 @@ SEED_TAG_LINE = "GRACE"
 REGION = "americas"
 QUEUE = 420                   # ranked solo/duo
 MATCHES_PER_PLAYER = 10
-MAX_MATCHES = 100
+MAX_MATCHES = 500
 
 MATCH_PREFIX = "raw/matches"
 

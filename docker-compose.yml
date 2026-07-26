@@ -30,6 +30,13 @@ services:
       - "5173:80"
     depends_on:
       - api
+  
+  ingest:
+    build:
+      context: .
+      dockerfile: services/ingest/Dockerfile
+    env_file: .env
+    profiles: ["batch"]
 
 volumes:
   pgdata:
