@@ -1,8 +1,6 @@
-import json
 import time
-from pathlib import Path
 from collections import deque
-
+from common import s3
 from common.riot_client import RiotClient
 
 # --- config ---
@@ -11,19 +9,21 @@ SEED_TAG_LINE = "GRACE"
 REGION = "americas"
 QUEUE = 420                   # ranked solo/duo
 MATCHES_PER_PLAYER = 10
-MAX_MATCHES = 300              # small for the first run — bump up once it works
+MAX_MATCHES = 100              # small for the first run — bump up once it works
 
-# repo_root/data/raw/matches  (scripts -> common -> services -> repo root)
-RAW_DIR = Path(__file__).resolve().parents[3] / "data" / "raw" / "matches"
+MATCH_PREFIX = "raw/matches"
+
+
+def match_key(match_id: str) -> str:
+    return f"{MATCH_PREFIX}/{match_id}.json"
 
 
 def already_have(match_id: str) -> bool:
-    return (RAW_DIR / f"{match_id}.json").exists()
+    return s3.object_exists(match_key(match_id))
 
 
 def save_match(match_id: str, data: dict) -> None:
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    (RAW_DIR / f"{match_id}.json").write_text(json.dumps(data), encoding="utf-8")
+    s3.put_json(match_key(match_id), data)
 
 
 def main():
@@ -63,7 +63,7 @@ def main():
                   f"frontier={len(frontier)}  {elapsed:5.1f}s")
 
     client.close()
-    print(f"\nDone. {fetched} matches in {RAW_DIR}")
+    print(f"\nDone. {fetched} matches in s3://{s3.bucket()}/{MATCH_PREFIX}")
 
 
 if __name__ == "__main__":
