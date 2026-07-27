@@ -1,4 +1,5 @@
 import time
+import os
 from collections import deque
 
 from common import s3
@@ -10,8 +11,7 @@ SEED_TAG_LINE = "GRACE"
 REGION = "americas"
 QUEUE = 420                   # ranked solo/duo
 MATCHES_PER_PLAYER = 10
-MAX_MATCHES = 500
-
+MAX_MATCHES = int(os.environ.get("MAX_MATCHES", "100"))
 MATCH_PREFIX = "raw/matches"
 
 
@@ -28,6 +28,7 @@ def save_match(match_id: str, data: dict) -> None:
 
 
 def main():
+    print(f"Target: {MAX_MATCHES} new matches, queue={QUEUE}\n")
     client = RiotClient(region=REGION)
 
     account = client.get_account_by_riot_id(SEED_GAME_NAME, SEED_TAG_LINE)
