@@ -1,6 +1,6 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
-
+from common.ddragon import get_latest_version, get_champions
 from common.db import query
 
 app = FastAPI(title="LoL Matchup Analytics")
@@ -67,6 +67,41 @@ def items(champion: str, min_games: int = 10):
         })
     out.sort(key=lambda x: x["edge"], reverse=True)
     return {"champion": champion, "prior": round(prior, 3), "items": out}
+
+_champion_cache = None
+
+@app.get("/champions")
+def champions():
+    """Sorted list of champion display names, for the UI dropdowns."""
+    global _champion_cache
+    if _champion_cache is None:
+        version = get_latest_version()
+        champs = get_champions(version)
+        _champion_cache = sorted(c["name"] for c in champs.values())
+    return {"champions": _champion_cache}
+
+@app.get("/personal")
+def personal(champion: str, opponent: str, lane: str):
+    """Your personal edge in a matchup vs the population baseline."""
+    rows = query(
+        "SELECT games, wins, raw_winrate, population_winrate, shrunk_winrate, edge "
+        "FROM personal_matchup_stats WHERE champion=%s AND opponent=%s AND lane=%s",
+        (champion, opponent, lane.upper()),
+    )
+    if not rows:
+        raise HTTPException(404, "You haven't played this matchup")
+    r = rows[0]
+    return {
+        "champion": champion, "opponent": opponent, "lane": lane.upper(),
+        "games": r["games"],
+        "raw_winrate": float(r["raw_winrate"]),
+        "population_winrate": float(r["population_winrate"]),
+        "shrunk_winrate": float(r["shrunk_winrate"]),
+        "edge": float(r["edge"]),
+        "verdict": ("you outperform here" if float(r["edge"]) > 0.03
+                    else "you underperform here" if float(r["edge"]) < -0.03
+                    else "about average for you"),
+    }
 
 
 def run():
