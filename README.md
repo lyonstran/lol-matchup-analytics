@@ -51,7 +51,7 @@ The whole idea in one line: a win rate from a handful of games is mostly noise, 
 
 The obvious way to rate a matchup is wins divided by games. Call it $\hat{p} = w/n$. The trouble is how much that number bounces around when $n$ is small:
 
-$$\operatorname{Var}(\hat{p}) = \frac{p(1-p)}{n}.$$
+$$\mathrm{Var}(\hat{p}) = \frac{p(1-p)}{n}.$$
 
 As $n$ shrinks, the variance blows up. At a single game the estimate is always exactly 0 or 1, maximally confident and completely useless. And most of the data looks like this. The vast majority of matchups have only one or two games behind them:
 
@@ -65,17 +65,17 @@ That fan of noise on the left is exactly what the method fixes.
 
 ### The fix: shrinkage
 
-Treat each matchup's wins as a Binomial draw, $w \sim \operatorname{Binomial}(n, p)$, and put a Beta prior on the true win rate $p$, centered on a baseline $\mu$ we already trust (the champion's overall rate in that lane):
+Treat each matchup's wins as a Binomial draw, $w \sim \mathrm{Binomial}(n, p)$, and put a Beta prior on the true win rate $p$, centered on a baseline $\mu$ we already trust (the champion's overall rate in that lane):
 
-$$p \sim \operatorname{Beta}(\alpha, \beta), \qquad \alpha = k\mu, \quad \beta = k(1-\mu).$$
+$$p \sim \mathrm{Beta}(\alpha, \beta), \qquad \alpha = k\mu, \qquad \beta = k(1-\mu).$$
 
 Here $\mu$ is where the prior is centered and $k$ is how strongly we believe it, measured in "pretend games." Because the Beta and Binomial fit together neatly, the updated (posterior) distribution is just another Beta:
 
-$$p \mid w \;\sim\; \operatorname{Beta}(w + \alpha,\; n - w + \beta),$$
+$$p \mid w \sim \mathrm{Beta}(w + \alpha,\ n - w + \beta),$$
 
 and its mean, which is the corrected win rate, turns out to be a simple weighted average of the data and the baseline:
 
-$$\hat{p}_{\text{shrunk}} = \frac{w + k\mu}{n + k} = \frac{n}{n+k}\,\hat{p} \;+\; \frac{k}{n+k}\,\mu.$$
+$$\hat{p}_{\text{shrunk}} = \frac{w + k\mu}{n + k} = \frac{n}{n+k}\hat{p} + \frac{k}{n+k}\mu.$$
 
 Read the two weights and the behavior is obvious. When you have lots of games, $n$ dominates, the weight lands on your actual win rate, and the estimate barely moves. When you have almost no games, $k$ dominates, the weight lands on the baseline, and the noisy number gets pulled home. There is no hard cutoff anywhere, and the transition is smooth as games accumulate.
 
@@ -95,13 +95,15 @@ The intuition: if real matchups all sit close to the baseline (small spread), th
 
 The baselines are themselves shrunk, which is what makes the whole thing hierarchical. Your personal win rate in a matchup leans on the population's (already corrected) win rate for that matchup, which leans on the champion's overall rate in the lane, which leans on a coin flip:
 
-$$\hat{p}_{\text{personal}} \;\longleftarrow\; \hat{p}_{\text{population}} \;\longleftarrow\; \mu_{\text{champion, lane}} \;\longleftarrow\; 0.5.$$
+$$\hat{p}_{\text{personal}} \leftarrow \hat{p}_{\text{population}} \leftarrow \mu_{\text{lane}} \leftarrow 0.5.$$
 
 Why this matters: if your personal matchup has three games and you lean it on a population cell that also has three games, you have just propped one noisy number against another. Leaning on the *corrected* population number instead gives it something solid underneath. In practice this visibly changed the personal estimates.
 
 ### Does it actually work?
 
-Shrinkage is only worth anything if it predicts better on games it has not seen. So split the games into two halves, fit both estimators on the first half, and score them on the second half using log loss, $-\frac{1}{N}\sum_i \left[y_i \log \hat{p}_i + (1-y_i)\log(1-\hat{p}_i)\right]$:
+Shrinkage is only worth anything if it predicts better on games it has not seen. So split the games into two halves, fit both estimators on the first half, and score them on the second half using log loss:
+
+$$\text{log loss} = -\frac{1}{N}\sum_i \left[ y_i \log \hat{p}_i + (1-y_i)\log(1-\hat{p}_i) \right].$$
 
 | Estimator | Out of sample log loss (lower is better) |
 |-----------|------------------------------------------|
