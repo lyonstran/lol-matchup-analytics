@@ -15,22 +15,25 @@ services:
       retries: 10
 
   api:
-    build: ./services/api
-    ports:
-      - "8000:8000"
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://postgres:devpass@db:5432/lol
+    ports:
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
-  
+
   web:
     build: ./web
     ports:
       - "5173:80"
     depends_on:
       - api
-  
+
   ingest:
     build:
       context: .
