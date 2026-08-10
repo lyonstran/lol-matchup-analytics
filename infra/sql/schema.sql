@@ -16,3 +16,13 @@ CREATE TABLE IF NOT EXISTS champion_lane_stats (
     winrate     NUMERIC(5,3) NOT NULL,
     PRIMARY KEY (champion, lane)
 );
+
+CREATE TABLE IF NOT EXISTS item_stats (
+    champion    TEXT         NOT NULL,
+    item_id     INTEGER      NOT NULL,
+    item_name   TEXT         NOT NULL,
+    games       INTEGER      NOT NULL,
+    wins        INTEGER      NOT NULL,
+    winrate     NUMERIC(5,3) NOT NULL,
+    PRIMARY KEY (champion, item_id)
+);
