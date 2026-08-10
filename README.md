@@ -120,20 +120,15 @@ Log loss comes down hard on being confidently wrong, which is exactly the raw es
 
 ```mermaid
 flowchart LR
-    Riot["Riot Match-V5 API"] -->|"rate-limited BFS crawler"| S3[("S3 raw layer<br>immutable match JSON")]
-    DDragon["Data Dragon<br>static champion/item data"] --> Load
-    S3 -->|"SQL, in place"| Athena["AWS Athena"]
-    Athena -->|"aggregation + shrinkage jobs"| Load["Processing<br>empirical Bayes shrinkage"]
-    Load --> PG[("Postgres<br>feature store")]
+    Riot["Riot Match-V5 API"] -->|"rate-limited crawler"| S3["S3 raw layer (immutable match JSON)"]
+    DDragon["Data Dragon static data"] --> Load
+    S3 -->|"SQL in place"| Athena["AWS Athena"]
+    Athena -->|"aggregation and shrinkage"| Load["Processing (empirical Bayes shrinkage)"]
+    Load --> PG["Postgres feature store"]
     PG --> API["FastAPI"]
     API --> Web["React UI"]
-    Claude["Anthropic API<br>coaching summaries"] --> API
-    User(("Player")) --> Web
-
-    style S3 fill:#e8f0fe,stroke:#4285f4
-    style Athena fill:#e8f0fe,stroke:#4285f4
-    style Load fill:#fef3e0,stroke:#f59e0b
-    style PG fill:#e6f4ea,stroke:#34a853
+    Claude["Anthropic API (coaching)"] --> API
+    User["Player"] --> Web
 ```
 
 **How it fits together, step by step:**
