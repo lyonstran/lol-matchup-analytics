@@ -35,3 +35,11 @@ def upsert(table: str, columns: list[str], conflict_keys: list[str], rows: list[
             cur.executemany(sql, rows)
         conn.commit()
     return len(rows)
+
+def query(sql: str, params: tuple = ()) -> list[dict]:
+    """Run a SELECT and return rows as dicts."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]

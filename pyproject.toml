@@ -8,4 +8,4 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
-members = ["services/common", "services/ingest"]
+members = ["services/common", "services/ingest", "services/api"]
