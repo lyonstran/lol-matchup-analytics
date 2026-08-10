@@ -39,3 +39,14 @@ CREATE TABLE IF NOT EXISTS personal_matchup_stats (
     edge            NUMERIC(6,3) NOT NULL,
     PRIMARY KEY (champion, opponent, lane)
 );
+
+CREATE TABLE IF NOT EXISTS matchup_item_stats (
+    champion    TEXT         NOT NULL,
+    opponent    TEXT         NOT NULL,
+    lane        TEXT         NOT NULL,
+    item_id     INTEGER      NOT NULL,
+    item_name   TEXT         NOT NULL,
+    games       INTEGER      NOT NULL,
+    wins        INTEGER      NOT NULL,
+    PRIMARY KEY (champion, opponent, lane, item_id)
+);
