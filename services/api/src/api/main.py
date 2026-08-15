@@ -4,8 +4,19 @@ from fastapi import FastAPI, HTTPException
 from common.ddragon import get_latest_version, get_champions
 from common.db import query
 from anthropic import Anthropic
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="LoL Matchup Analytics")
+origins = ["http://localhost:5173"]
+if os.getenv("FRONTEND_ORIGIN"):
+    origins.append(os.getenv("FRONTEND_ORIGIN"))
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 K = 20.0  # shrinkage prior strength, matching the notebook
 

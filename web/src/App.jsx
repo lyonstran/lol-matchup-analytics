@@ -5,6 +5,8 @@ import {
 } from "recharts";
 import ReactMarkdown from "react-markdown";
 
+const API = import.meta.env.VITE_API_BASE_URL || "/api";
+
 const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 function confidenceColor(c) {
@@ -100,7 +102,7 @@ export default function App() {
   const [explaining, setExplaining] = useState(false);
 
   useEffect(() => {
-    fetch("/api/champions")
+    fetch("${API}/champions")
       .then((r) => r.json())
       .then((d) => setChampionList(d.champions))
       .catch(() => {});
@@ -116,21 +118,21 @@ export default function App() {
     setExplanation(null);
     try {
       const mRes = await fetch(
-        `/api/matchup?champion=${champion}&opponent=${opponent}&lane=${lane}`
+        `${API}/matchup?champion=${champion}&opponent=${opponent}&lane=${lane}`
       );
       if (!mRes.ok) throw new Error("No data for that matchup");
       setMatchup(await mRes.json());
 
       const pRes = await fetch(
-        `/api/personal?champion=${champion}&opponent=${opponent}&lane=${lane}`
+        `${API}/personal?champion=${champion}&opponent=${opponent}&lane=${lane}`
       );
       setPersonal(pRes.ok ? await pRes.json() : null);
 
-      const iRes = await fetch(`/api/items?champion=${champion}`);
+      const iRes = await fetch(`${API}/items?champion=${champion}`);
       setItems(iRes.ok ? await iRes.json() : null);
 
       const miRes = await fetch(
-        `/api/matchup-items?champion=${champion}&opponent=${opponent}&lane=${lane}`
+        `${API}/matchup-items?champion=${champion}&opponent=${opponent}&lane=${lane}`
       );
       setMatchupItems(miRes.ok ? await miRes.json() : null);
     } catch (e) {
@@ -143,7 +145,7 @@ export default function App() {
   async function explain() {
     setExplaining(true);
     try {
-      const res = await fetch(`/api/explain?champion=${champion}&opponent=${opponent}&lane=${lane}`);
+      const res = await fetch(`${API}/explain?champion=${champion}&opponent=${opponent}&lane=${lane}`);
       if (res.ok) setExplanation((await res.json()).explanation);
     } finally {
       setExplaining(false);
