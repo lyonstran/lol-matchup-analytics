@@ -13,4 +13,4 @@ COPY services/api ./services/api
 RUN uv sync --frozen --package api
 
 EXPOSE 8000
-CMD ["uv", "run", "--frozen", "--package", "api", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD uv run --frozen --package api uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}

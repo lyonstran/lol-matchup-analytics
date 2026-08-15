@@ -14,6 +14,14 @@ K = 20.0  # shrinkage prior strength, matching the notebook
 def health():
     return {"status": "ok"}
 
+@app.get("/health/db")
+def health_db():
+    try:
+        query("SELECT 1")
+        return {"status": "ok", "db": "connected"}
+    except Exception as e:
+        raise HTTPException(503, f"db unreachable: {e}")
+
 
 _ddragon_version = None
 
