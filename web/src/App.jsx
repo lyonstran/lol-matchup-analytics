@@ -102,7 +102,7 @@ export default function App() {
   const [explaining, setExplaining] = useState(false);
 
   useEffect(() => {
-    fetch('${API}/champions')
+    fetch(`${API}/champions`)
       .then((r) => r.json())
       .then((d) => setChampionList(d.champions))
       .catch(() => {});
