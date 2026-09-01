@@ -29,3 +29,8 @@ def get_items(version: str) -> dict:
     resp = httpx.get(url, timeout=10)
     resp.raise_for_status()
     return resp.json()["data"]
+
+
+def build_item_id_map(items: dict) -> dict[int, str]:
+    """Map numeric item id to display name."""
+    return {int(item_id): meta["name"] for item_id, meta in items.items()}
