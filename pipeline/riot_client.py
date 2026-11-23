@@ -3,8 +3,8 @@ from urllib.parse import quote
 
 import httpx
 
-from common.config import get_riot_api_key
-from common.rate_limiter import RateLimiter
+from config import get_riot_api_key
+from rate_limiter import RateLimiter
 
 DEV_KEY_LIMITS = [(20, 1), (100, 120)]
 RETRYABLE_STATUS = {500, 502, 503, 504}

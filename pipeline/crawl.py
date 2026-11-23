@@ -2,8 +2,8 @@ import time
 import os
 from collections import deque
 
-from common import s3
-from common.riot_client import RiotClient
+import s3
+from riot_client import RiotClient
 
 # --- config ---
 SEED_GAME_NAME = "jefff buckley"

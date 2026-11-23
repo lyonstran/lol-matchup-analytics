@@ -1,7 +1,7 @@
 import time
 
-from common import s3
-from common.riot_client import RiotClient
+import s3
+from riot_client import RiotClient
 
 SEED_GAME_NAME = "fionaapple21"
 SEED_TAG_LINE = "IKNOW"
