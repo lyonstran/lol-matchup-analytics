@@ -1,0 +1,97 @@
+# Every day: crawl new matches, rebuild the JSON, rebuild the site, publish to GitHub Pages.
+# Also runs on every push (so code changes go live) and from the "Run workflow" button.
+name: Refresh data and deploy
+
+on:
+  schedule:
+    - cron: "0 9 * * *"   # 09:00 UTC daily (3-4 am Central)
+  workflow_dispatch:      # manual "Run workflow" button in the Actions tab
+  push:
+    branches: [main, v2-static]
+
+# what this workflow may do with its automatic GitHub token
+permissions:
+  contents: read   # read the repo
+  pages: write     # publish to GitHub Pages
+  id-token: write  # prove to Pages that this run is really from this repo
+
+# never run two refreshes at once; let a running one finish
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # secrets are added in the repo settings; GitHub hides their values in logs
+      RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      MY_PUUID: ${{ secrets.MY_PUUID }}
+      AWS_REGION: us-east-2
+      MAX_MATCHES: "150"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.4.0
+        with:
+          enable-cache: true
+
+      - name: Install Python packages (no notebook tools)
+        run: uv sync --frozen --no-dev
+
+      # keep the downloaded matches between runs so each sync only fetches new files
+      - name: Restore the local copy of raw matches
+        uses: actions/cache@v6
+        with:
+          path: data/raw/matches
+          key: raw-matches-${{ github.run_id }}
+          restore-keys: raw-matches-
+
+      - name: Download matches we don't have yet from S3
+        run: uv run --frozen python pipeline/sync_raw.py
+
+      - name: Crawl new population matches
+        run: uv run --frozen python pipeline/crawl.py
+
+      - name: Crawl my new matches
+        run: uv run --frozen python pipeline/crawl_personal.py
+
+      - name: Build the JSON data
+        run: uv run --frozen python pipeline/build.py
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the website
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package the site for Pages
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/dist
+
+  deploy:
+    # only main goes live; other branches just prove the build works
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
