@@ -1,0 +1,4 @@
+# store every text file with LF line endings; each OS converts on checkout
+* text=auto
+# shell scripts must stay LF even on Windows, or bash fails on the \r
+*.sh text eol=lf
