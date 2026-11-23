@@ -1,11 +1,26 @@
 [project]
 name = "lol-matchup-analytics"
-version = "0.1.0"
+version = "2.0.0"
+description = "Personal League of Legends matchup analytics with empirical-Bayes shrinkage"
 requires-python = ">=3.12"
-dependencies = []
+# what the pipeline needs: Riot API calls (httpx), S3 (boto3), reading .env (python-dotenv)
+dependencies = [
+    "boto3>=1.43.56",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+]
 
 [tool.uv]
+# this repo is a folder of scripts, not a package to build or install
 package = false
 
-[tool.uv.workspace]
-members = ["services/common", "services/ingest", "services/api"]
+[dependency-groups]
+# only for the notebook and README figures; GitHub Actions skips these with --no-dev
+dev = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.1",
+    "pandas>=3.0.5",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.0",
+]
