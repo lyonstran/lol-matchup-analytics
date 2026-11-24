@@ -5,4 +5,6 @@ __pycache__/
 node_modules/
 dist/
 .DS_Store
+# downloaded raw matches (data/raw) and generated site data (web/public/data)
 data/
+.ipynb_checkpoints/
