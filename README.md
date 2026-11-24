@@ -2,6 +2,8 @@
 
 **Personalized League of Legends matchup analytics, powered by hierarchical Bayesian shrinkage.**
 
+**Live site:** [lyonstran.github.io/lol-matchup-analytics](https://lyonstran.github.io/lol-matchup-analytics/), refreshed with new matches every day.
+
 Most stat trackers report raw win rates on tiny samples, i.e., a "100% win rate" that's really 1 game. This tool builds population-level baselines from a corpus of ranked matches, then corrects individual matchup estimates toward those baselines using empirical-Bayes shrinkage, weighted by how much data actually backs each number. Every figure the tool shows comes with its sample size and a confidence label, because an honest estimate that says "we don't know yet" beats a confident lie.
 
 > The core question this answers that op.gg can't: **"Do *I* actually beat the field in this matchup, and how sure can we be?"**
@@ -112,7 +114,9 @@ $$\text{log loss} = -\frac{1}{N}\sum_i \left[ y_i \log \hat{p}_i + (1-y_i)\log(1
 
 Log loss comes down hard on being confidently wrong, which is exactly the raw estimator's failure mode: it calls a matchup 0% or 100% off a game or two, then reality disagrees in the test half. The shrunk estimator never claims more certainty than the data supports, so it lands right near the honest floor of $-\ln(0.5) \approx 0.693$, the score you get by sensibly saying "close to a coin flip" when you do not know.
 
-**Corpus:** roughly 3,100 ranked matches, giving 11,668 matchup cells (one champion against another in a given lane) and 626 baselines (one per champion and lane), plus a personal layer of over 500 matches.
+To be precise about what this shows: shrinkage removes the overconfident small-sample errors, but a score of 0.69 is also what you get by always predicting 50%, so this backtest does not yet show that the shrunk estimates beat a coin flip. The next step is to add a constant 0.5 baseline and a lane-baseline-only estimator to the comparison, and to split the test by match rather than by games rebuilt from totals.
+
+**Corpus:** about 3,800 ranked matches as of November 2026 (growing daily; the site footer shows the live count), giving roughly 12,900 matchup cells (one champion against another in a given lane), plus a personal layer of my own ranked games.
 
 ---
 
@@ -120,30 +124,31 @@ Log loss comes down hard on being confidently wrong, which is exactly the raw es
 
 ```mermaid
 flowchart LR
-    Riot["Riot Match-V5 API"] -->|"rate-limited crawler"| S3["S3 raw layer (immutable match JSON)"]
-    DDragon["Data Dragon static data"] --> Load
-    S3 -->|"SQL in place"| Athena["AWS Athena"]
-    Athena -->|"aggregation and shrinkage"| Load["Processing (empirical Bayes shrinkage)"]
-    Load --> PG["Postgres feature store"]
-    PG --> API["FastAPI"]
-    API --> Web["React UI"]
-    Claude["Anthropic API (coaching)"] --> API
-    User["Player"] --> Web
+    Riot["Riot Match-V5 API"] -->|"rate-limited crawler"| S3["S3 raw layer: immutable match JSON"]
+    S3 -->|"sync new files"| Build["Python build: count, shrink, write JSON"]
+    DDragon["Data Dragon static data"] --> Build
+    Build --> Site["Static React site on GitHub Pages"]
+    Claude["Anthropic API: optional coaching"] --> Site
+    User["Player"] --> Site
 ```
+
+Everything on the left runs once a day in GitHub Actions. The site itself is just files: there is no server and no database to keep running.
 
 **How it fits together, step by step:**
 
-1. **Collect the data.** A crawler pulls ranked matches from Riot's API. Because Riot enforces strict rate limits, it throttles itself and walks outward from one player to their opponents, then their opponents, and so on, snowballing a large, varied corpus. Every raw match lands in S3 untouched, so the original data is never lost or overwritten.
+1. **Collect the data.** A crawler pulls ranked matches from Riot's API. Riot enforces strict rate limits, so it throttles itself and walks outward from one player to the people in their games, then the people in *their* games, snowballing a large, varied corpus. Every raw match lands in S3 exactly as Riot returned it and is never modified, so the original data is always there to reprocess.
 
-2. **Crunch it with SQL.** Instead of loading all that JSON into a database, Athena runs SQL directly on the files in S3. This is where the raw matches become useful numbers: champion-vs-champion win rates, item outcomes, and per-lane baselines.
+2. **Count and correct.** A plain Python build step reads every match once and counts games and wins for each champion in each lane, each champion-vs-champion matchup, each item, and each of my own games. It then applies the Bayesian shrinkage, the core of the project, turning noisy small-sample win rates into honest estimates.
 
-3. **Correct the noise and store it.** The processing step applies the Bayesian shrinkage, the core of the project, which is to turn noisy small-sample win rates into honest estimates, then saves the finished numbers into Postgres. Postgres is the "answer key" the app reads from.
+3. **Publish precomputed answers.** The build writes one small JSON file per champion (a few MB in total). The React frontend loads only the file it needs, so every lookup is instant. Nothing is computed or fetched from Riot when someone uses the site.
 
-4. **Serve it fast.** A FastAPI backend reads those pre-computed answers from Postgres and hands them to the React frontend. Nothing is calculated live or re-fetched from Riot on each request, so the app stays snappy.
+4. **Explain it in plain English (optional).** The site can send the computed numbers to Claude, which writes a short coaching summary. Claude only ever sees the real statistics and is told to flag numbers based on too few games. This runs in the browser with the visitor's own Anthropic API key, so the site still needs no server.
 
-5. **Explain it in plain English.** Optionally, the app sends the computed numbers to Claude, which writes a short coaching summary. Claude only ever sees the real statistics — it rephrases them, it doesn't invent anything, where it's told to flag when a number is based on too few games to trust.
+In short: **raw matches in S3, then a daily Python build that counts and shrinks, then static JSON and a React site on GitHub Pages**, with an optional AI layer that turns the stats into advice.
 
-In short: **raw matches in S3 → SQL analytics in Athena → shrinkage → a Postgres feature store → a fast API and UI**, with an optional AI layer that translates the stats into advice.
+### Why it is built this way
+
+The first version (tag `v1-render`) used AWS Athena for SQL over S3, a Postgres feature store on Neon, a FastAPI service and a static site on Render, all wired together with Docker Compose. It worked, but every number it served changes at most once a day, the data the site needs is a few MB, and it has one user. The v2 rewrite precomputes everything in one daily job and serves plain files instead. That removed four hosted services, the cold starts of a free-tier API, and an Athena table that only existed in the AWS console, while producing the same numbers (checked value by value against the old API before switching over).
 
 ---
 
@@ -151,60 +156,55 @@ In short: **raw matches in S3 → SQL analytics in Athena → shrinkage → a Po
 
 | Stage | What it does | Key engineering |
 |-------|--------------|-----------------|
-| **Ingestion** | Crawls ranked matches into an immutable S3 raw layer | Dual sliding-window rate limiter (20/s + 100/2min), 429 backoff, resumable dedup, breadth-first player-graph crawl |
+| **Ingestion** | Crawls ranked matches into an immutable S3 raw layer | Dual sliding-window rate limiter (20/s + 100/2min), 429 backoff, dedup against a local copy, breadth-first player-graph crawl seeded from a permanent PUUID |
 | **Storage** | Raw match JSON, never mutated or re-fetched | S3 with a least-privilege IAM key (no delete permission, enforcing immutability) |
-| **Analytics** | SQL over raw JSON, in place | AWS Athena with a minimal nested-JSON schema (`UNNEST` over the participants array; self-join for the matchup matrix) |
-| **Feature store** | Matchup matrix, champion/lane baselines, item stats, matchup-specific items, personal record | Re-runnable Athena → Postgres load jobs with upsert semantics |
-| **Modeling** | Empirical-Bayes Beta-Binomial shrinkage | Prior strength estimated from data (method of moments); hierarchical (personal → population → baseline) |
-| **Serving** | Calibrated estimates over HTTP | FastAPI reading the precomputed store; endpoints for matchup, personal edge, items, matchup items, champion list, and AI explanation |
-| **UI** | Matchup tool foregrounding confidence | React (Vite); sample size + confidence badges, item icons, a raw-vs-shrunk chart (Recharts), and grounded AI coaching summaries |
+| **Processing** | Matchup matrix, champion/lane baselines, item stats, matchup-specific items, personal record | One pass over the raw JSON in plain Python; champions keyed by numeric ID so renamed or oddly spelled champions always match |
+| **Modeling** | Empirical-Bayes Beta-Binomial shrinkage | Hierarchical (personal, then population, then lane baseline); prior strength studied by method of moments in the notebook |
+| **Publishing** | Precomputed estimates as static JSON | Daily GitHub Actions job: crawl, build, then deploy to GitHub Pages; raw matches cached between runs |
+| **UI** | Matchup tool foregrounding confidence | React (Vite); sample size and confidence badges, item icons, a raw-vs-shrunk chart (Recharts), and grounded AI coaching summaries |
 
 ---
 
 ## Tech stack
 
-**Data & cloud:** AWS S3, AWS Athena, Riot Games API (production key), Data Dragon
+**Data & cloud:** AWS S3, Riot Games API (production key), Data Dragon
 
-**Backend:** Python, FastAPI, PostgreSQL, boto3, httpx, psycopg
+**Pipeline:** Python, httpx, boto3, uv
 
-**Modeling:** empirical-Bayes Beta-Binomial shrinkage (pandas, numpy, scipy)
+**Modeling:** empirical-Bayes Beta-Binomial shrinkage (pandas, numpy, scipy in the notebook)
 
 **AI:** Anthropic API (Claude) for grounded natural-language coaching summaries
 
 **Frontend:** React, Vite, Recharts
 
-**Infra:** Docker, Docker Compose, nginx, uv workspace (monorepo)
+**Automation & hosting:** GitHub Actions (daily refresh), GitHub Pages
 
 ---
 
 ## Running locally
 
-**Prerequisites:** Docker Desktop, [uv](https://docs.astral.sh/uv/), Node.js, an AWS account, a Riot API key, and (optional, for coaching summaries) an Anthropic API key.
+**Prerequisites:** [uv](https://docs.astral.sh/uv/), Node.js, an AWS account with an S3 bucket, a Riot API key, and (optional, for coaching summaries) an Anthropic API key.
 
 ```bash
 # 1. Clone and configure
 git clone https://github.com/lyonstran/lol-matchup-analytics.git
 cd lol-matchup-analytics
-cp .env.example .env          # fill in RIOT_API_KEY, AWS creds, S3_BUCKET, ANTHROPIC_API_KEY, etc.
+cp .env.example .env          # fill in RIOT_API_KEY, AWS keys, S3_BUCKET, MY_PUUID
+uv sync
 
-# 2. Start Postgres
-docker compose up -d db
+# 2. Get the data
+uv run python pipeline/sync_raw.py         # download raw matches from S3 into data/raw/matches
+uv run python pipeline/crawl.py            # optional: crawl new matches (rate-limited)
+uv run python pipeline/crawl_personal.py   # optional: crawl your own new matches
 
-# 3. Build the corpus (rate-limited; runs in the background)
-uv run --package ingest crawl
+# 3. Build the site data
+uv run python pipeline/build.py            # writes web/public/data/*.json
 
-# 4. Materialize the feature store
-uv run python services/common/scripts/load_features.py        # matchup + baseline stats
-uv run python services/common/scripts/load_items.py           # champion-wide item stats
-uv run python services/common/scripts/load_matchup_items.py   # matchup-specific item stats
-uv run python services/common/scripts/load_personal.py        # personal layer
-
-# 5. Serve
-uv run --package api serve                                    # API on :8000
-cd web && npm install && npm run dev                          # UI on :5173
+# 4. Run the site
+cd web && npm install && npm run dev       # http://localhost:5173
 ```
 
-*(Athena tables over the S3 raw layer are defined in `infra/athena/`; the Postgres schema is in `infra/sql/schema.sql`. EDA figures are regenerated with `uv run python notebooks/generate_figures.py`.)*
+`uv run python pipeline/lookup_puuid.py "<game name>" "<tag>"` prints the PUUID for a Riot ID.
 
 ---
 
@@ -212,17 +212,19 @@ cd web && npm install && npm run dev                          # UI on :5173
 
 ```
 lol-matchup-analytics/
-├── services/
-│   ├── common/     # shared: Riot client, rate limiter, S3/Athena/DB helpers, Data Dragon
-│   ├── ingest/     # rate-limited crawler → S3
-│   └── api/        # FastAPI serving layer
-├── web/            # React (Vite) frontend
-├── infra/
-│   ├── athena/     # Athena table DDL
-│   └── sql/        # Postgres feature-store schema
-├── notebooks/      # shrinkage prototyping, validation backtest, EDA figures
-├── docs/figures/   # committed EDA figures used in this README
-└── docker-compose.yml
+├── pipeline/                   # all the Python
+│   ├── crawl.py                # rate-limited breadth-first crawler, Riot to S3
+│   ├── crawl_personal.py       # pages through my own ranked history
+│   ├── sync_raw.py             # S3 to a local copy in data/raw/matches
+│   ├── build.py                # counts, shrinks, writes the site's JSON
+│   ├── shrinkage.py            # the Beta-Binomial shrinkage estimator
+│   ├── riot_client.py          # Riot API client (retries, 429 handling)
+│   ├── rate_limiter.py         # multi-window sliding rate limiter
+│   └── s3.py, ddragon.py, config.py, lookup_puuid.py
+├── web/                        # React (Vite) frontend
+├── notebooks/                  # shrinkage prototype, backtest, EDA figures (still read the v1 tables; being ported)
+├── docs/figures/               # figures used in this README
+└── .github/workflows/          # daily refresh and deploy
 ```
 
 ---
@@ -249,8 +251,8 @@ The statistical methods in this project rest on standard Bayesian estimation the
 ### Documentation & tools
 
 - [Riot Games API documentation](https://developer.riotgames.com/) — Match-V5, Account-V1, and rate-limit policy.
-- [AWS Athena documentation](https://docs.aws.amazon.com/athena/) — querying nested JSON in S3 with SQL.
-- [FastAPI documentation](https://fastapi.tiangolo.com/) and [uv documentation](https://docs.astral.sh/uv/) — serving layer and monorepo tooling.
+- [uv documentation](https://docs.astral.sh/uv/): Python environments and lockfile.
+- [GitHub Actions](https://docs.github.com/en/actions) and [GitHub Pages](https://docs.github.com/en/pages): the daily refresh and hosting.
 
 ### Acknowledgments
 
