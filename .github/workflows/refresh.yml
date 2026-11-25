@@ -7,7 +7,7 @@ on:
     - cron: "0 9 * * *"   # 09:00 UTC daily (3-4 am Central)
   workflow_dispatch:      # manual "Run workflow" button in the Actions tab
   push:
-    branches: [main, v2-static]
+    branches: [main]
 
 # what this workflow may do with its automatic GitHub token
 permissions:
@@ -84,7 +84,7 @@ jobs:
           path: web/dist
 
   deploy:
-    # only main goes live; other branches just prove the build works
+    # only main goes live; a manual run on another branch just proves the build works
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
