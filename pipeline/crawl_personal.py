@@ -1,11 +1,13 @@
+import os
 import time
 
 import s3
 from crawl import already_have, save_match
 from riot_client import RiotClient
 
-SEED_GAME_NAME = "fionaapple21"
-SEED_TAG_LINE = "IKNOW"
+# Your PUUID from .env (or the GitHub secret). It never changes, even if you rename
+# your Riot ID, and build.py uses the same value to pick out your games.
+MY_PUUID = os.environ.get("MY_PUUID", "")
 REGION = "americas"
 QUEUE = 420
 PAGE_SIZE = 100          # Match-V5 max per request
@@ -15,9 +17,10 @@ MATCH_PREFIX = "raw/matches"
 
 
 def main():
+    if not MY_PUUID:
+        raise RuntimeError("MY_PUUID is not set. Add it to .env (or the GitHub secret).")
     client = RiotClient(region=REGION)
-    account = client.get_account_by_riot_id(SEED_GAME_NAME, SEED_TAG_LINE)
-    puuid = account["puuid"]
+    puuid = MY_PUUID
     print(f"Your PUUID: {puuid[:20]}...")
 
     checked = 0
