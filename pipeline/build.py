@@ -31,6 +31,10 @@ MIN_MATCHUP_ITEM_GAMES = 3    # items into one specific opponent
 # a game this short (in seconds) is a remake, not a real game
 REMAKE_SECONDS = 300
 
+# Items are compared only between similar games: same game-length bucket and same
+# number of finished items. Bucket edges in minutes: under 20, 20-25, 25-30, 30-35, 35+.
+LENGTH_BUCKET_EDGES = [20, 25, 30, 35]
+
 
 # ---------- small helpers ----------
 
@@ -78,6 +82,16 @@ def is_remake(match):
     return False
 
 
+def length_bucket(seconds):
+    """Which game-length bucket a game falls in: 0 = under 20 min, ..., 4 = 35 min or more."""
+    minutes = seconds / 60
+    bucket = 0
+    for edge in LENGTH_BUCKET_EDGES:
+        if minutes >= edge:
+            bucket += 1
+    return bucket
+
+
 def lane_prior(baselines, champ, lane, k_lane):
     """The champion's win rate in that lane, shrunk toward 0.5 (or 0.5 if we have none).
 
@@ -101,6 +115,14 @@ def count_matches(champ_id_by_key, completed):
     items = {}           # (champ, item_id)               -> games, wins
     matchup_items = {}   # (champ, opp, lane, item_id)    -> games, wins
     personal = {}        # (champ, opp, lane), your games -> games, wins
+
+    # the same games split by "stratum" = (length bucket, number of finished items),
+    # so items can be compared with similar games (see item_expectations)
+    strata = {}               # (stratum)                             -> games, wins, all players
+    champ_strata = {}         # (champ, stratum)                      -> games, wins
+    item_strata = {}          # (champ, item_id, stratum)             -> games, wins
+    matchup_item_strata = {}  # (champ, opp, lane, item_id, stratum)  -> games, wins
+
     match_count = 0
     remakes = 0
     first_game = None
@@ -119,6 +141,8 @@ def count_matches(champ_id_by_key, completed):
             first_game = created
         if last_game is None or created > last_game:
             last_game = created
+
+        bucket = length_bucket(match["info"]["gameDuration"])
 
         # one simple record per player who had a lane
         players = []
@@ -139,12 +163,17 @@ def count_matches(champ_id_by_key, completed):
                 "win": p["win"],
                 "puuid": p["puuid"],
                 "items": finished,
+                "stratum": (bucket, len(finished)),
             })
 
         for me in players:
+            stratum = me["stratum"]
             add_game(baselines, (me["champ"], me["lane"]), me["win"])
+            add_game(strata, stratum, me["win"])
+            add_game(champ_strata, (me["champ"], stratum), me["win"])
             for item_id in me["items"]:
                 add_game(items, (me["champ"], item_id), me["win"])
+                add_game(item_strata, (me["champ"], item_id, stratum), me["win"])
 
             # lane opponent: same lane, other team
             for opp in players:
@@ -154,6 +183,7 @@ def count_matches(champ_id_by_key, completed):
                 add_game(matchups, key, me["win"])
                 for item_id in me["items"]:
                     add_game(matchup_items, key + (item_id,), me["win"])
+                    add_game(matchup_item_strata, key + (item_id, stratum), me["win"])
                 if me["puuid"] == MY_PUUID:
                     add_game(personal, key, me["win"])
 
@@ -164,6 +194,10 @@ def count_matches(champ_id_by_key, completed):
         "items": items,
         "matchup_items": matchup_items,
         "personal": personal,
+        "strata": strata,
+        "champ_strata": champ_strata,
+        "item_strata": item_strata,
+        "matchup_item_strata": matchup_item_strata,
         "match_count": match_count,
         "first_game": first_game,
         "last_game": last_game,
@@ -208,6 +242,54 @@ def fit_prior_strengths(counts):
     return k_lane, k_matchup
 
 
+def clamp(p):
+    """Keep a probability away from exactly 0 or 1."""
+    return min(max(p, 0.01), 0.99)
+
+
+def add_expected(table, stratum_rate):
+    """Collapse {(..., stratum): games, wins} into {(...): games, wins, expected}.
+
+    `expected` is how many wins we'd predict if every game won at the overall
+    win rate of its stratum (same length bucket, same number of finished items).
+    """
+    out = {}
+    for key, c in table.items():
+        base = key[:-1]       # the key without the stratum on the end
+        stratum = key[-1]
+        if len(base) == 1:
+            base = base[0]    # (champ,) -> champ
+        if base not in out:
+            out[base] = {"games": 0, "wins": 0, "expected": 0.0}
+        out[base]["games"] += c["games"]
+        out[base]["wins"] += c["wins"]
+        out[base]["expected"] += c["games"] * stratum_rate[stratum]
+    return out
+
+
+def item_expectations(counts):
+    """Everything the item tables need to compare items with similar games.
+
+    Returns:
+      champ_lift:  {champ: how much more often the champion wins than expected, overall}
+                   (shrunk toward 0 with K, so a champion with 3 games gets almost none)
+      items:       {(champ, item_id): games, wins, expected}
+      matchup_items: {(champ, opp, lane, item_id): games, wins, expected}
+    """
+    # the win rate of ALL players in each stratum, e.g. 20-25 minutes with 4 finished items
+    stratum_rate = {}
+    for stratum, c in counts["strata"].items():
+        stratum_rate[stratum] = c["wins"] / c["games"]
+
+    champ_lift = {}
+    for champ, c in add_expected(counts["champ_strata"], stratum_rate).items():
+        champ_lift[champ] = (c["wins"] - c["expected"]) / (c["games"] + K)
+
+    items = add_expected(counts["item_strata"], stratum_rate)
+    matchup_items = add_expected(counts["matchup_item_strata"], stratum_rate)
+    return champ_lift, items, matchup_items
+
+
 def build_champion_files(counts, champions, item_names, k_lane, k_matchup):
     """Return {champ_id: dict ready to save as that champion's JSON file}."""
     baselines = counts["baselines"]
@@ -228,11 +310,8 @@ def build_champion_files(counts, champions, item_names, k_lane, k_matchup):
         totals[champ]["games"] += c["games"]
         totals[champ]["wins"] += c["wins"]
 
-    # overall_rate is the prior for items, so it is shrunk toward 0.5 like lane baselines;
-    # the JSON still shows the raw rate next to its game count
-    overall_rate = {}
+    # each champion's overall record, shown on the site next to its game count
     for champ, c in totals.items():
-        overall_rate[champ] = shrink(c["wins"], c["games"], 0.5)
         out[champ]["overall"] = {
             "games": c["games"], "wins": c["wins"], "winrate": r3(c["wins"] / c["games"]),
         }
@@ -256,14 +335,24 @@ def build_champion_files(counts, champions, item_names, k_lane, k_matchup):
             "confidence": confidence(c["games"]),
         }
 
-    # champion-wide items, shrunk toward the champion's overall rate
-    item_shrunk = {}
-    for (champ, item_id), c in counts["items"].items():
+    # ----- items: compared with similar games, not with the champion's overall rate -----
+    # Items come from the final inventory, and a player who finished more items in a
+    # game of the same length was usually winning. So "games with this item" win more
+    # than the champion's average almost no matter what the item is. Instead, each
+    # item is compared with what we'd EXPECT in games of the same length with the same
+    # number of finished items (see item_expectations).
+    champ_lift, item_expected, matchup_item_expected = item_expectations(counts)
+
+    # champion-wide items: prior = expected win rate for these games + the champion's lift
+    item_lift = {}
+    for (champ, item_id), c in item_expected.items():
         if champ not in out:
             continue
-        prior = overall_rate.get(champ, 0.5)
+        expected_rate = c["expected"] / c["games"]
+        prior = clamp(expected_rate + champ_lift.get(champ, 0.0))
         shrunk = shrink(c["wins"], c["games"], prior)
-        item_shrunk[(champ, item_id)] = shrunk
+        # how far this item's games beat expectation, kept as the prior for matchup items
+        item_lift[(champ, item_id)] = shrunk - expected_rate
         if c["games"] >= MIN_ITEM_GAMES:
             out[champ]["items"].append({
                 "item_id": item_id,
@@ -274,11 +363,15 @@ def build_champion_files(counts, champions, item_names, k_lane, k_matchup):
                 "edge": r3(shrunk - prior),
             })
 
-    # items into one opponent, shrunk toward that item's champion-wide shrunk rate
-    for (champ, opp, lane, item_id), c in counts["matchup_items"].items():
+    # items into one opponent: prior = expected win rate for these games + how much the
+    # item beats expectation for this champion in general, so the edge says whether it
+    # does even better (or worse) into this specific opponent
+    for (champ, opp, lane, item_id), c in matchup_item_expected.items():
         if champ not in out or c["games"] < MIN_MATCHUP_ITEM_GAMES:
             continue
-        prior = item_shrunk.get((champ, item_id), overall_rate.get(champ, 0.5))
+        expected_rate = c["expected"] / c["games"]
+        lift = item_lift.get((champ, item_id), champ_lift.get(champ, 0.0))
+        prior = clamp(expected_rate + lift)
         shrunk = shrink(c["wins"], c["games"], prior)
         lane_table = out[champ]["matchup_items"].setdefault(lane, {})
         opp_list = lane_table.setdefault(opp, [])

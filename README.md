@@ -140,7 +140,7 @@ So the honest claim is: shrinkage stops the tool from reporting overconfident nu
 
 ### Known limitations
 
-- **Item win rates are associations, not effects.** Items are counted from each player's final inventory, and longer or winning games end with more finished items, so item edges are likely inflated by game length.
+- **Item win rates are associations, not effects.** Items are counted from each player's final inventory, and a player who finished more items in a game of the same length was usually winning: in 20 to 25 minute games, players with four finished items won 93% of the time and players with one won 29%. Comparing item games with the champion's overall win rate therefore made almost every item look good (two thirds of items had a positive edge, averaging +1.9 points). The build now compares each item with what is expected in games of the same length with the same number of finished items, which brings the average edge to +0.3 points with about half the items on each side. What remains is still not causal: players pick items in response to how the game is going.
 - **The personal layer uses a fixed $k = 20$.** There are too few personal cells to fit it the same way yet.
 
 ---

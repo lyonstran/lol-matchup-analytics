@@ -368,7 +368,8 @@ export default function App() {
         <div style={cardStyle}>
           <h3 style={{ marginTop: 0, color: "#1a1a1a" }}>Top items for {result.championName}</h3>
           <p style={{ color: "#888", fontSize: 13, marginTop: -4 }}>
-            Champion-wide (all matchups), ranked by shrunk edge over {result.championName}'s baseline.
+            Champion-wide (all matchups). Edge compares games with the item to similar games: same
+            length, same number of finished items. An association, not proof the item causes wins.
           </p>
           <ItemRows list={result.items} edgeLabel="Edge" version={version} />
         </div>
