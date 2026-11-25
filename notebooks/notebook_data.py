@@ -9,6 +9,7 @@
 #     from notebook_data import load_tables
 #     tables = load_tables()
 #     matchups = tables["matchups"]
+import json
 import sys
 from pathlib import Path
 
@@ -90,3 +91,56 @@ def load_tables():
         "match_count": counts["match_count"],
         "ddragon_version": version,
     }
+
+
+def load_lane_games():
+    """One row per player per game, paired with their lane opponent.
+
+    This keeps every game separate (the tables above only keep totals), which the
+    backtest needs so it can split by match: all of a match's rows land in the
+    same half, so no game is ever both "seen" and "tested".
+
+    Columns: match_id, game_creation (ms since 1970), champion, opponent, lane, win (1 or 0)
+    The pairing rule is the same as build.py: same lane, other team.
+    """
+    # champion ids from Data Dragon, same mapping as build.py
+    version = ddragon.get_latest_version()
+    champ_id_by_key = {}
+    for c in ddragon.get_champions(version).values():
+        champ_id_by_key[int(c["key"])] = c["id"]
+
+    rows = []
+    for path in sorted(build.RAW_DIR.glob("*.json")):
+        with open(path, encoding="utf-8") as f:
+            match = json.load(f)
+        match_id = match["metadata"]["matchId"]
+        created = match["info"]["gameCreation"]
+
+        # everyone who had a lane
+        players = []
+        for p in match["info"]["participants"]:
+            if p["teamPosition"] == "":
+                continue
+            champ = champ_id_by_key.get(p["championId"], p["championName"])
+            players.append({"champ": champ, "lane": p["teamPosition"],
+                            "team": p["teamId"], "win": p["win"]})
+
+        # pair each player with the enemy in the same lane
+        for me in players:
+            for opp in players:
+                if opp["lane"] != me["lane"] or opp["team"] == me["team"]:
+                    continue
+                if me["win"]:
+                    win = 1
+                else:
+                    win = 0
+                rows.append({
+                    "match_id": match_id,
+                    "game_creation": created,
+                    "champion": me["champ"],
+                    "opponent": opp["champ"],
+                    "lane": me["lane"],
+                    "win": win,
+                })
+
+    return pd.DataFrame(rows)
