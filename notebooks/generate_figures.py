@@ -1,30 +1,25 @@
 """
-Generate EDA figures for the README from the Postgres feature store.
-Run from the repo root with the workspace venv:  uv run python notebooks/generate_figures.py
+Generate EDA figures for the README from the raw match files.
+Run from the repo root:  uv run python notebooks/generate_figures.py
+(needs data/raw/matches/, so run pipeline/sync_raw.py first)
 Writes PNGs to docs/figures/.
 """
-import os
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-import psycopg
-from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(find_dotenv())
+# notebook_data.py sits next to this file and also puts pipeline/ on the import path
+from notebook_data import load_tables
+from shrinkage import K  # shrinkage prior strength, the same 20 the website uses
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
-K = 20.0  # shrinkage prior strength
+tables = load_tables()
+matchups = tables["matchups"]
+baselines = tables["baselines"]
 
-with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-    matchups = pd.read_sql("SELECT * FROM matchup_stats", conn)
-    baselines = pd.read_sql("SELECT * FROM champion_lane_stats", conn)
-
-matchups["games"] = matchups["games"].astype(int)
-matchups["wins"] = matchups["wins"].astype(int)
 matchups["raw"] = matchups["wins"] / matchups["games"]
 
 # --- Figure 1: the sparsity histogram (the long tail) ---
@@ -41,7 +36,7 @@ fig.tight_layout()
 fig.savefig(OUT / "sparsity_histogram.png", dpi=140)
 plt.close(fig)
 
-# --- Figure 2: the funnel — win rate vs sample size ---
+# --- Figure 2: the funnel: win rate vs sample size ---
 fig, ax = plt.subplots(figsize=(8, 4.5))
 ax.scatter(matchups["games"], matchups["raw"], alpha=0.15, s=12, color="#4285f4")
 ax.axhline(0.5, color="#f59e0b", ls="--", lw=1)
@@ -53,10 +48,14 @@ fig.tight_layout()
 fig.savefig(OUT / "winrate_funnel.png", dpi=140)
 plt.close(fig)
 
-# --- Figure 3: raw vs shrunk — the correction, colored by sample size ---
-base_lookup = baselines.set_index(["champion", "lane"])["winrate"].astype(float)
-matchups["mu"] = matchups.apply(
-    lambda r: base_lookup.get((r["champion"], r["lane"]), 0.5), axis=1)
+# --- Figure 3: raw vs shrunk: the correction, colored by sample size ---
+# each matchup's prior is its champion's raw win rate in that lane (0.5 if none)
+baselines["winrate"] = baselines["wins"] / baselines["games"]
+base_lookup = baselines.set_index(["champion", "lane"])["winrate"]
+priors = []
+for champ, lane in zip(matchups["champion"], matchups["lane"]):
+    priors.append(base_lookup.get((champ, lane), 0.5))
+matchups["mu"] = priors
 matchups["shrunk"] = (matchups["wins"] + K * matchups["mu"]) / (matchups["games"] + K)
 
 fig, ax = plt.subplots(figsize=(7, 6))
@@ -72,4 +71,4 @@ fig.tight_layout()
 fig.savefig(OUT / "raw_vs_shrunk.png", dpi=140)
 plt.close(fig)
 
-print(f"Wrote 3 figures to {OUT}")
+print(f"Wrote 3 figures to {OUT} ({tables['match_count']} matches)")
