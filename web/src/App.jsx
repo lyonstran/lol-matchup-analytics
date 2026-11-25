@@ -9,8 +9,23 @@ import ReactMarkdown from "react-markdown";
 // BASE_URL keeps this working both locally and on GitHub Pages.
 const DATA = `${import.meta.env.BASE_URL}data`;
 
-const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+// Riot's lane names, and the names players actually use
+const LANES = [
+  { id: "TOP", label: "Top" },
+  { id: "JUNGLE", label: "Jungle" },
+  { id: "MIDDLE", label: "Mid" },
+  { id: "BOTTOM", label: "Bot" },
+  { id: "UTILITY", label: "Support" },
+];
 const KEY_STORAGE = "anthropic_api_key";
+
+// chart colors (the same values as --shrunk, --raw, --grid, --axis, --ink-muted in index.css)
+const SHRUNK_COLOR = "#3987e5";
+const RAW_COLOR = "#d95926";
+const GRID_COLOR = "#2c2c2a";
+const AXIS_COLOR = "#383835";
+const MUTED_COLOR = "#898781";
+const CONNECTOR_COLOR = "#5f5e5a";   // the raw-to-shrunk line: visible, but quieter than the dots
 
 // champion files already downloaded this visit, so switching back is instant
 const championCache = {};
@@ -48,139 +63,187 @@ function writeSavedKey(value) {
   }
 }
 
-function confidenceColor(c) {
-  return { high: "#22c55e", medium: "#eab308", low: "#ef4444" }[c] || "#888";
+// 0.523 -> "52.3%"
+function pct(x) {
+  return (x * 100).toFixed(1) + "%";
 }
 
-function ItemRows({ list, edgeLabel, version }) {
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <thead>
-        <tr style={{ textAlign: "left", color: "#888", fontSize: 13 }}>
-          <th>Item</th><th>Games</th><th>Win rate</th><th>{edgeLabel}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.slice(0, 8).map((it) => (
-          <tr key={it.item_id} style={{ borderTop: "1px solid #eee" }}>
-            <td style={{ padding: "6px 0", display: "flex", alignItems: "center", gap: 8 }}>
-              {version && (
-                <img
-                  src={`https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${it.item_id}.png`}
-                  alt="" width={24} height={24}
-                  style={{ borderRadius: 4, verticalAlign: "middle" }}
-                />
-              )}
-              {it.item}
-            </td>
-            <td>{it.games}</td>
-            <td>{(it.shrunk_winrate * 100).toFixed(1)}%</td>
-            <td style={{ color: it.edge >= 0 ? "#22c55e" : "#ef4444" }}>
-              {it.edge >= 0 ? "+" : ""}{(it.edge * 100).toFixed(1)}%
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+// 0.031 -> "+3.1%", -0.031 -> "-3.1%"
+function signedPct(x) {
+  const sign = x >= 0 ? "+" : "";
+  return sign + (x * 100).toFixed(1) + "%";
 }
 
-function ShrinkageChart({ data, prior }) {
-  // sparse items first, so the "pulled hard" rows read at the top
-  const rows = [...data]
-    .sort((a, b) => a.games - b.games)
-    .slice(0, 10)
-    .map((it) => ({
-      item: it.item,
-      games: it.games,
-      raw: +(it.raw_winrate * 100).toFixed(1),
-      shrunk: +(it.shrunk_winrate * 100).toFixed(1),
-    }));
+function laneLabel(id) {
+  for (const l of LANES) {
+    if (l.id === id) return l.label;
+  }
+  return id;
+}
 
-  if (rows.length === 0) return null;
+// ---------- small building blocks ----------
 
+function ConfidenceBadge({ level }) {
+  return <span className={`badge ${level}`}>{level} confidence</span>;
+}
+
+// one headline tile in the top row
+function Tile({ label, value, small, sub, children }) {
   return (
-    <div style={cardStyle}>
-      <h3 style={{ marginTop: 0, color: "#1a1a1a" }}>Shrinkage: raw vs. corrected</h3>
-      <p style={{ color: "#888", fontSize: 13, marginTop: -4 }}>
-        Grey = raw win rate, purple = shrunk estimate. The wider the gap, the smaller the sample:
-        sparse items get pulled toward the baseline, well-sampled ones barely move.
-      </p>
-      <ResponsiveContainer width="100%" height={Math.max(240, rows.length * 36)}>
-        <ScatterChart margin={{ left: 30, right: 24, top: 10, bottom: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-          <XAxis type="number" dataKey="value" domain={[0, 100]} unit="%" tick={{ fontSize: 12 }} />
-          <YAxis type="category" dataKey="item" width={130} tick={{ fontSize: 12 }} allowDuplicatedCategory={false} />
-          <Tooltip
-            cursor={{ strokeDasharray: "3 3" }}
-            formatter={(v, name) => [`${v}%`, name]}
-            labelFormatter={() => ""}
-          />
-          <ReferenceLine x={+(prior * 100).toFixed(1)} stroke="#f59e0b" strokeDasharray="4 4"
-            label={{ value: "baseline", position: "top", fontSize: 11, fill: "#f59e0b" }} />
-          <Scatter name="Raw" data={rows.map((r) => ({ item: r.item, value: r.raw }))} fill="#9ca3af" />
-          <Scatter name="Shrunk" data={rows.map((r) => ({ item: r.item, value: r.shrunk }))} fill="#7c3aed" />
-          <Legend />
-        </ScatterChart>
-      </ResponsiveContainer>
+    <div className="panel">
+      <div className="tile-label">{label}</div>
+      <div className={small ? "tile-value small" : "tile-value"}>
+        {value}
+        {children}
+      </div>
+      {sub && <div className="tile-sub">{sub}</div>}
     </div>
   );
 }
 
-export default function App() {
-  const [index, setIndex] = useState(null);           // index.json: champion list + build info
-  const [champion, setChampion] = useState("Yasuo");  // Data Dragon ids, e.g. "MonkeyKing"
-  const [opponent, setOpponent] = useState("Ahri");
-  const [lane, setLane] = useState("MIDDLE");
-  const [result, setResult] = useState(null);         // everything shown after Analyze
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+// a bar from the center line: right and blue for a positive edge, left and red for negative.
+// A full half-bar means an edge of 10 points or more.
+function EdgeBar({ edge }) {
+  const halfWidth = Math.min(Math.abs(edge) / 0.10, 1) * 50;   // percent of the track
+  const style = { width: `${halfWidth}%` };
+  if (edge >= 0) {
+    style.left = "50%";
+    style.background = "var(--edge-up)";
+  } else {
+    style.right = "50%";
+    style.background = "var(--edge-down)";
+  }
+  return (
+    <div className="edge-cell">
+      <div className="edge-track">
+        <div className="zero" />
+        <div className="bar" style={style} />
+      </div>
+      <span className="edge-number">{signedPct(edge)}</span>
+    </div>
+  );
+}
+
+function ItemTable({ list, edgeLabel, version }) {
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th className="num">Games</th>
+            <th className="num">Win rate</th>
+            <th className="num">{edgeLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((it) => (
+            <tr key={it.item_id}>
+              <td>
+                <div className="item-cell">
+                  {version && (
+                    <img
+                      src={`https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${it.item_id}.png`}
+                      alt="" width={22} height={22}
+                    />
+                  )}
+                  {it.item}
+                </div>
+              </td>
+              <td className="num">{it.games}</td>
+              <td className="num">{pct(it.shrunk_winrate)}</td>
+              <td className="num"><EdgeBar edge={it.edge} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// hover box for the chart: the item, its sample size, raw and shrunk
+function ChartTooltip({ active, payload }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="panel" style={{ padding: "8px 10px", fontSize: 12 }}>
+      <strong>{row.item}</strong> · {row.games} games
+      <div style={{ color: RAW_COLOR }}>raw {row.raw}%</div>
+      <div style={{ color: SHRUNK_COLOR }}>shrunk {row.shrunk}%</div>
+    </div>
+  );
+}
+
+// Raw vs shrunk for the items into this opponent: a line from the raw dot to the
+// shrunk dot shows how far the estimate was pulled. Sparse items at the top.
+function ShrinkageChart({ items }) {
+  const rows = [];
+  const sorted = [...items].sort((a, b) => a.games - b.games).slice(0, 6);
+  for (const it of sorted) {
+    rows.push({
+      label: `${it.item} (${it.games})`,
+      item: it.item,
+      games: it.games,
+      raw: +(it.raw_winrate * 100).toFixed(1),
+      shrunk: +(it.shrunk_winrate * 100).toFixed(1),
+    });
+  }
+
+  // zoom the x axis to the data (with a little room) instead of always 0-100%
+  let low = 50;
+  let high = 50;
+  for (const r of rows) {
+    low = Math.min(low, r.raw, r.shrunk);
+    high = Math.max(high, r.raw, r.shrunk);
+  }
+  low = Math.max(0, Math.floor((low - 5) / 10) * 10);
+  high = Math.min(100, Math.ceil((high + 5) / 10) * 10);
+
+  const rawPoints = [];
+  const shrunkPoints = [];
+  for (const r of rows) {
+    rawPoints.push({ ...r, x: r.raw });
+    shrunkPoints.push({ ...r, x: r.shrunk });
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(170, rows.length * 30 + 50)}>
+      <ScatterChart margin={{ left: 0, right: 16, top: 8, bottom: 0 }}>
+        <CartesianGrid stroke={GRID_COLOR} horizontal={false} />
+        <XAxis
+          type="number" dataKey="x" domain={[low, high]} unit="%"
+          tick={{ fontSize: 11, fill: MUTED_COLOR }} stroke={AXIS_COLOR}
+        />
+        <YAxis
+          type="category" dataKey="label" width={170} allowDuplicatedCategory={false}
+          tick={{ fontSize: 11, fill: MUTED_COLOR }} stroke={AXIS_COLOR}
+        />
+        <ReferenceLine x={50} stroke={MUTED_COLOR} strokeDasharray="4 4" />
+        {rows.map((r) => (
+          <ReferenceLine
+            key={r.label}
+            segment={[{ x: r.raw, y: r.label }, { x: r.shrunk, y: r.label }]}
+            stroke={CONNECTOR_COLOR} strokeWidth={2}
+          />
+        ))}
+        <Tooltip content={<ChartTooltip />} cursor={false} />
+        {/* no grow-in animation: the dots should be there the moment the panel shows */}
+        <Scatter name="Raw" data={rawPoints} fill={RAW_COLOR} isAnimationActive={false} />
+        <Scatter name="Shrunk" data={shrunkPoints} fill={SHRUNK_COLOR} isAnimationActive={false} />
+        <Legend iconSize={10} wrapperStyle={{ fontSize: 12, color: MUTED_COLOR }} />
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---------- the AI coaching panel ----------
+
+function CoachPanel({ result }) {
   const [apiKey, setApiKey] = useState(readSavedKey());
   const [keyDraft, setKeyDraft] = useState("");
   const [explanation, setExplanation] = useState(null);
   const [explainError, setExplainError] = useState(null);
   const [explaining, setExplaining] = useState(false);
-
-  useEffect(() => {
-    fetch(`${DATA}/index.json`)
-      .then((r) => r.json())
-      .then((d) => setIndex(d))
-      .catch(() => setError("Could not load the champion list. Has pipeline/build.py been run?"));
-  }, []);
-
-  // id -> display name, e.g. "MonkeyKing" -> "Wukong"
-  const names = {};
-  if (index) {
-    for (const c of index.champions) names[c.id] = c.name;
-  }
-
-  async function analyze() {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setExplanation(null);
-    setExplainError(null);
-    try {
-      const data = await loadChampion(champion);
-      const matchup = lookup(data.matchups, lane, opponent);
-      if (!matchup) {
-        throw new Error(`No games yet for ${names[champion]} vs ${names[opponent]} in ${lane}.`);
-      }
-      setResult({
-        championName: names[champion],
-        opponentName: names[opponent],
-        lane: lane,
-        matchup: matchup,
-        personal: lookup(data.personal, lane, opponent),
-        items: data.items,
-        matchupItems: lookup(data.matchup_items, lane, opponent) || [],
-      });
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function saveKey() {
     const trimmed = keyDraft.trim();
@@ -214,181 +277,239 @@ export default function App() {
     }
   }
 
-  const champions = index ? index.champions : [];
-  const version = index ? index.ddragon_version : null;
-
   return (
-    <div style={{ maxWidth: 680, margin: "40px auto", fontFamily: "system-ui, sans-serif", padding: 20 }}>
-      <h1 style={{ fontSize: 28 }}>LoL Matchup Analytics</h1>
-      <p style={{ color: "#666", marginTop: -8 }}>
-        Bayesian-shrunk win rates. Every number shows how much data backs it.
+    <div className="panel ai-panel">
+      <h2>AI coaching summary</h2>
+      <p className="caption">
+        Written by Claude from the numbers on this page only, with small samples flagged.
       </p>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 20 }}>
-        <select value={champion} onChange={(e) => setChampion(e.target.value)} style={inputStyle}>
-          {champions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select value={opponent} onChange={(e) => setOpponent(e.target.value)} style={inputStyle}>
-          {champions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select value={lane} onChange={(e) => setLane(e.target.value)} style={inputStyle}>
-          {LANES.map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-        <button onClick={analyze} disabled={loading || !index} style={buttonStyle}>
-          {loading ? "..." : "Analyze"}
-        </button>
-      </div>
-
-      {error && <p style={{ color: "#ef4444", marginTop: 20 }}>{error}</p>}
-
-      {result && (
-        <div style={cardStyle}>
-          <h2 style={{ margin: 0, color: "#1a1a1a", fontSize: 20 }}>
-            {result.championName} vs {result.opponentName} · {result.lane}
-          </h2>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginTop: 12 }}>
-            <span style={{ fontSize: 40, fontWeight: 700 }}>
-              {(result.matchup.shrunk_winrate * 100).toFixed(1)}%
-            </span>
-            <span style={{
-              padding: "3px 10px", borderRadius: 12, fontSize: 13, fontWeight: 600,
-              color: "#fff", background: confidenceColor(result.matchup.confidence),
-            }}>
-              {result.matchup.confidence} confidence
-            </span>
-          </div>
-          <p style={{ color: "#666", marginTop: 8 }}>
-            Based on <strong>{result.matchup.games} games</strong>.
-            Raw rate {(result.matchup.raw_winrate * 100).toFixed(1)}%, shrunk toward{" "}
-            {result.championName}'s {(result.matchup.prior * 100).toFixed(1)}% lane baseline
-            {result.matchup.games < 30 ? " because the sample is small." : "."}
-          </p>
-        </div>
-      )}
-
-      {result && !explanation && (
-        <div style={{ marginTop: 12 }}>
-          {apiKey ? (
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <button onClick={explain} disabled={explaining} style={{ ...buttonStyle, background: "#7c3aed" }}>
-                {explaining ? "Thinking..." : "Get AI coaching summary"}
-              </button>
-              <button onClick={forgetKey} style={linkStyle}>forget my API key</button>
-            </div>
-          ) : (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <input
-                type="password"
-                placeholder="Anthropic API key for AI summaries"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                style={{ ...inputStyle, flex: 1, minWidth: 220 }}
-              />
-              <button onClick={saveKey} disabled={!keyDraft.trim()} style={{ ...buttonStyle, background: "#7c3aed" }}>
-                Save key
-              </button>
-              <p style={{ color: "#888", fontSize: 12, margin: 0, width: "100%" }}>
-                Optional. The key stays in this browser and is sent only to Anthropic.
-              </p>
-            </div>
-          )}
-          {explainError && <p style={{ color: "#ef4444" }}>{explainError}</p>}
-        </div>
-      )}
-
       {explanation && (
-        <div style={{
-          marginTop: 20, padding: "20px 24px", borderRadius: 12,
-          background: "linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%)",
-          border: "1px solid #e9d5ff",
-        }}>
-          <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 700, letterSpacing: 0.5, marginBottom: 10 }}>
-            AI COACHING SUMMARY
+        <div className="ai-text">
+          <ReactMarkdown>{explanation}</ReactMarkdown>
+        </div>
+      )}
+
+      {!explanation && !apiKey && (
+        <div>
+          <div className="key-row">
+            <input
+              type="password"
+              placeholder="Anthropic API key"
+              value={keyDraft}
+              onChange={(e) => setKeyDraft(e.target.value)}
+            />
+            <button className="button ai" onClick={saveKey} disabled={!keyDraft.trim()}>
+              Save key
+            </button>
           </div>
-          <div style={{ color: "#3b0764", lineHeight: 1.65, fontSize: 15 }}>
-            <ReactMarkdown
-              components={{
-                strong: ({ children }) => <strong style={{ color: "#7c3aed" }}>{children}</strong>,
-                p: ({ children }) => <p style={{ margin: "0 0 8px" }}>{children}</p>,
-              }}
-            >
-              {explanation}
-            </ReactMarkdown>
-          </div>
+          <p className="caption">Optional. The key stays in this browser and is sent only to Anthropic.</p>
         </div>
       )}
 
-      {result && result.personal && (
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0, color: "#1a1a1a" }}>
-            Your history · {result.personal.games} games
-          </h3>
-          <div style={{ display: "flex", gap: 24, alignItems: "baseline" }}>
-            <div>
-              <div style={{ fontSize: 32, fontWeight: 700 }}>
-                {(result.personal.shrunk_winrate * 100).toFixed(1)}%
-              </div>
-              <div style={{ color: "#888", fontSize: 13 }}>your shrunk rate</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 32, fontWeight: 700, color: "#999" }}>
-                {(result.personal.population_winrate * 100).toFixed(1)}%
-              </div>
-              <div style={{ color: "#888", fontSize: 13 }}>population</div>
-            </div>
-            <div>
-              <div style={{
-                fontSize: 32, fontWeight: 700,
-                color: result.personal.edge >= 0 ? "#22c55e" : "#ef4444",
-              }}>
-                {result.personal.edge >= 0 ? "+" : ""}{(result.personal.edge * 100).toFixed(1)}%
-              </div>
-              <div style={{ color: "#888", fontSize: 13 }}>{result.personal.verdict}</div>
-            </div>
-          </div>
+      {!explanation && apiKey && (
+        <div className="key-row">
+          <button className="button ai" onClick={explain} disabled={explaining || !result.matchup}>
+            {explaining ? "Thinking..." : "Write a summary"}
+          </button>
+          <button className="link-button" onClick={forgetKey}>forget my API key</button>
         </div>
       )}
 
-      {result && result.matchupItems.length > 0 && (
-        <ShrinkageChart data={result.matchupItems} prior={result.matchup.shrunk_winrate} />
-      )}
-
-      {result && result.matchupItems.length > 0 && (
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0, color: "#1a1a1a" }}>Items vs {result.opponentName}</h3>
-          <p style={{ color: "#888", fontSize: 13, marginTop: -4 }}>
-            Edge is vs {result.championName}'s general build. Positive means the item does even
-            better into {result.opponentName} specifically (shrunk hard, since matchup samples are small).
-          </p>
-          <ItemRows list={result.matchupItems} edgeLabel="Edge vs general" version={version} />
-        </div>
-      )}
-
-      {result && result.items.length > 0 && (
-        <div style={cardStyle}>
-          <h3 style={{ marginTop: 0, color: "#1a1a1a" }}>Top items for {result.championName}</h3>
-          <p style={{ color: "#888", fontSize: 13, marginTop: -4 }}>
-            Champion-wide (all matchups). Edge compares games with the item to similar games: same
-            length, same number of finished items. An association, not proof the item causes wins.
-          </p>
-          <ItemRows list={result.items} edgeLabel="Edge" version={version} />
-        </div>
-      )}
-
-      {index && (
-        <p style={{ color: "#aaa", fontSize: 12, marginTop: 32 }}>
-          {index.match_count} ranked matches from {index.first_game} to {index.last_game} ·
-          patch {index.ddragon_version} · shrinkage strength K: lane {index.k_lane} and
-          matchup {index.k_matchup} (fitted from the data), personal and items {index.k} (fixed) ·
-          updated {index.built_at}
-        </p>
-      )}
+      {explainError && <p className="error">{explainError}</p>}
     </div>
   );
 }
 
-const inputStyle = { padding: "8px 10px", fontSize: 15, border: "1px solid #ccc", borderRadius: 6 };
-const buttonStyle = { padding: "8px 18px", fontSize: 15, fontWeight: 600, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" };
-const linkStyle = { background: "none", border: "none", color: "#888", fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: 0 };
-// cards are always light, so their text is always dark (even when the browser is in dark mode)
-const cardStyle = { marginTop: 20, padding: 20, border: "1px solid #eee", borderRadius: 10, background: "#fafafa", color: "#1a1a1a" };
+// ---------- the page ----------
+
+export default function App() {
+  const [index, setIndex] = useState(null);           // index.json: champion list + build info
+  const [champion, setChampion] = useState("Yasuo");  // Data Dragon ids, e.g. "MonkeyKing"
+  const [opponent, setOpponent] = useState("Ahri");
+  const [lane, setLane] = useState("MIDDLE");
+  const [result, setResult] = useState(null);         // everything the panels show
+  const [error, setError] = useState(null);
+
+  // load the champion list once
+  useEffect(() => {
+    fetch(`${DATA}/index.json`)
+      .then((r) => r.json())
+      .then((d) => setIndex(d))
+      .catch(() => setError("Could not load the champion list. Has pipeline/build.py been run?"));
+  }, []);
+
+  // id -> display name, e.g. "MonkeyKing" -> "Wukong"
+  const names = {};
+  if (index) {
+    for (const c of index.champions) names[c.id] = c.name;
+  }
+
+  // Re-load the panels whenever a picker changes (no Analyze button needed).
+  // `cancelled` stops a slow, older request from overwriting a newer one.
+  useEffect(() => {
+    if (!index) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const data = await loadChampion(champion);
+        if (cancelled) return;
+        setError(null);
+        setResult({
+          championName: names[champion],
+          opponentName: names[opponent],
+          lane: lane,
+          matchup: lookup(data.matchups, lane, opponent),      // null if no games yet
+          personal: lookup(data.personal, lane, opponent),     // null if you never played it
+          items: data.items,
+          matchupItems: lookup(data.matchup_items, lane, opponent) || [],
+        });
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [index, champion, opponent, lane]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function swapChampions() {
+    setChampion(opponent);
+    setOpponent(champion);
+  }
+
+  const champions = index ? index.champions : [];
+  const version = index ? index.ddragon_version : null;
+
+  return (
+    <div className="dashboard">
+      <header className="topbar">
+        <div className="title">
+          <h1>LoL Matchup Analytics</h1>
+          <p>Bayesian-shrunk win rates. Every number shows how much data backs it.</p>
+        </div>
+        <div className="pickers">
+          <select value={champion} onChange={(e) => setChampion(e.target.value)} aria-label="Your champion">
+            {champions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button className="icon-button" onClick={swapChampions} title="Swap champions" aria-label="Swap champions">
+            ⇄
+          </button>
+          <select value={opponent} onChange={(e) => setOpponent(e.target.value)} aria-label="Opponent">
+            {champions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={lane} onChange={(e) => setLane(e.target.value)} aria-label="Lane">
+            {LANES.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+        </div>
+      </header>
+
+      {error && <p className="error">{error}</p>}
+
+      {result && (
+        <>
+          <section className="kpis">
+            {result.matchup ? (
+              <Tile
+                label={`${result.championName} vs ${result.opponentName} · ${laneLabel(result.lane)}`}
+                value={pct(result.matchup.shrunk_winrate)}
+                sub={`Raw ${pct(result.matchup.raw_winrate)} over ${result.matchup.games} games, ` +
+                     `shrunk toward a ${pct(result.matchup.prior)} lane baseline`}
+              >
+                <ConfidenceBadge level={result.matchup.confidence} />
+              </Tile>
+            ) : (
+              <Tile
+                label={`${result.championName} vs ${result.opponentName} · ${laneLabel(result.lane)}`}
+                value="–" sub="No games yet for this matchup in this lane."
+              />
+            )}
+
+            {result.personal ? (
+              <Tile
+                label="Your record"
+                value={pct(result.personal.shrunk_winrate)}
+                sub={`${result.personal.games} games (raw ${pct(result.personal.raw_winrate)}) ` +
+                     `vs population ${pct(result.personal.population_winrate)}`}
+              />
+            ) : (
+              <Tile label="Your record" value="–" sub="You haven't played this matchup yet." />
+            )}
+
+            {result.personal ? (
+              <Tile label="Your edge" value={signedPct(result.personal.edge)} sub={result.personal.verdict} />
+            ) : (
+              <Tile label="Your edge" value="–" sub="Needs games of your own." />
+            )}
+
+            {index && (
+              <Tile
+                label="Data behind this"
+                small
+                value={`${index.match_count.toLocaleString()} matches`}
+                sub={`Prior strength fitted from the data: k = ${index.k_lane} for lanes, ` +
+                     `${index.k_matchup} for matchups. Personal and items use k = ${index.k}.`}
+              />
+            )}
+          </section>
+
+          <section className="row">
+            <div className="panel">
+              <h2>Items vs {result.opponentName}</h2>
+              <p className="caption">
+                Edge vs the same item in {result.championName}'s other games. Matchup samples are
+                small, so these are shrunk hard.
+              </p>
+              {result.matchupItems.length > 0 ? (
+                <ItemTable list={result.matchupItems} edgeLabel="Edge vs usual" version={version} />
+              ) : (
+                <p className="empty">Not enough item data for this matchup yet.</p>
+              )}
+            </div>
+
+            <div className="panel">
+              <h2>Top items for {result.championName}</h2>
+              <p className="caption">
+                All matchups. Edge compares games with the item to similar games (same length, same
+                number of finished items). An association, not proof the item causes wins.
+              </p>
+              {result.items.length > 0 ? (
+                <ItemTable list={result.items} edgeLabel="Edge" version={version} />
+              ) : (
+                <p className="empty">Not enough item data for this champion yet.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="row">
+            <div className="panel">
+              <h2>Shrinkage: raw vs. corrected</h2>
+              <p className="caption">
+                Items vs {result.opponentName}, fewest games at the top (game count in brackets).
+                The longer the line, the harder a small sample was pulled in.
+              </p>
+              {result.matchupItems.length > 0 ? (
+                <ShrinkageChart items={result.matchupItems} />
+              ) : (
+                <p className="empty">No items to chart for this matchup yet.</p>
+              )}
+            </div>
+
+            {/* a new key for each matchup starts the panel fresh, clearing the old summary */}
+            <CoachPanel key={`${champion}-${opponent}-${lane}`} result={result} />
+          </section>
+        </>
+      )}
+
+      {index && (
+        <footer className="footer">
+          {index.match_count.toLocaleString()} ranked matches from {index.first_game} to {index.last_game} ·
+          patch {index.ddragon_version} · updated {index.built_at}
+        </footer>
+      )}
+    </div>
+  );
+}

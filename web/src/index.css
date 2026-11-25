@@ -1,111 +1,381 @@
+/* The whole look of the site. One dark theme; colors come from a checked palette
+   (enough contrast, colorblind-safe) and are named by their job, not their hue. */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  color-scheme: dark;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* surfaces */
+  --page: #0d0d0d;          /* behind everything */
+  --panel: #1a1a19;         /* cards */
+  --panel-hover: #232322;   /* a table row under the mouse */
+  --border: rgba(255, 255, 255, 0.10);
+  --grid: #2c2c2a;          /* chart gridlines */
+  --axis: #383835;          /* chart axis, connector lines, the zero line of an edge bar */
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  /* text */
+  --ink: #f0efec;           /* main text and numbers */
+  --ink-soft: #c3c2b7;      /* secondary text */
+  --ink-muted: #898781;     /* labels, captions */
+
+  /* data */
+  --shrunk: #3987e5;        /* shrunk estimate (blue) */
+  --raw: #d95926;           /* raw win rate (orange) */
+  --edge-up: #3987e5;       /* positive edge bar */
+  --edge-down: #e66767;     /* negative edge bar */
+
+  /* confidence badges (always shown with their word, never color alone) */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+
+  --accent: #3987e5;        /* buttons */
+  --ai: #9085e9;            /* the AI summary panel */
+
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--page);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
 }
 
 body {
   margin: 0;
+  background: var(--page);
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
+/* ---------- page layout ---------- */
+
+.dashboard {
+  max-width: 1240px;
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
+  padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
+  gap: 12px;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+/* title on the left, pickers on the right; they wrap on narrow screens */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
+.title h1 {
   margin: 0;
+  font-size: 20px;
+  font-weight: 600;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+.title p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink-muted);
 }
 
-code {
+.pickers {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+select,
+input {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: inherit;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.button {
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-weight: 600;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.ai {
+  background: var(--ai);
+}
+
+.icon-button {
+  background: var(--panel);
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+/* row of 4 headline tiles; 2 per row on tablets, 1 on phones.
+   minmax(0, 1fr) lets a column shrink below its content's width, so a wide
+   table scrolls inside its panel instead of pushing the page off the screen. */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* two panels side by side; stacked on narrow screens */
+.row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard {
+    padding: 12px 16px 20px;
+  }
+  .kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* no room for the little edge bars on a phone; the signed number stays */
+  .edge-track {
+    display: none;
+  }
+}
+
+/* ---------- panels and tiles ---------- */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 0;          /* lets wide tables scroll instead of stretching the grid */
+  display: flex;
+  flex-direction: column;
+}
+
+.panel h2 {
+  margin: 0;
   font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  font-weight: 600;
+}
+
+.panel .caption {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.panel .empty {
+  margin: auto 0;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.tile-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tile-value {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.tile-value.small {
+  font-size: 20px;
+}
+
+.tile-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.badge.high {
+  background: var(--good);
+}
+
+.badge.medium {
+  background: var(--warning);
+  color: #0b0b0b;        /* dark text: white on yellow is unreadable */
+}
+
+.badge.low {
+  background: var(--critical);
+}
+
+/* ---------- item tables ---------- */
+
+/* fixed height so the page doesn't grow; long lists scroll inside the panel */
+.table-scroll {
+  max-height: 264px;
+  overflow: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;   /* digits line up in columns */
+}
+
+th {
+  position: sticky;      /* header stays put while the rows scroll */
+  top: 0;
+  background: var(--panel);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  padding: 4px 6px;
+}
+
+td {
+  padding: 5px 6px;
+  border-top: 1px solid var(--grid);
+}
+
+tbody tr:hover {
+  background: var(--panel-hover);
+}
+
+th.num,
+td.num {
+  text-align: right;
+}
+
+.item-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-cell img {
+  border-radius: 4px;
+}
+
+/* edge: a small bar that grows right (positive) or left (negative) from a center line */
+.edge-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edge-track {
+  position: relative;
+  width: 60px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.edge-track .zero {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--axis);
+}
+
+.edge-track .bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+}
+
+.edge-number {
+  width: 46px;
+  text-align: right;
+}
+
+/* ---------- AI summary ---------- */
+
+.ai-panel h2 {
+  color: var(--ai);
+}
+
+.ai-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.ai-text p {
+  margin: 0 0 8px;
+}
+
+.ai-text strong {
+  color: var(--ai);
+}
+
+.key-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.key-row input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.error {
+  color: var(--edge-down);
+  font-size: 13px;
+}
+
+.footer {
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-align: center;
 }
