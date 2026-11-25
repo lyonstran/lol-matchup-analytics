@@ -14,7 +14,7 @@ from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 
 import ddragon
-from shrinkage import K, shrink, confidence, verdict
+from shrinkage import K, K_GRID, shrink, fit_k, confidence, verdict
 
 load_dotenv(find_dotenv())
 
@@ -60,17 +60,18 @@ def completed_item_ids(items_raw):
     return completed
 
 
-def lane_prior(baselines, champ, lane):
+def lane_prior(baselines, champ, lane, k_lane):
     """The champion's win rate in that lane, shrunk toward 0.5 (or 0.5 if we have none).
 
     A baseline is a win rate from a sample too, so it gets the same treatment as
     everything else. Unshrunk, a champion with 1 game in a lane got a 0% or 100%
     baseline, and every matchup for it in that lane was pulled toward that.
+    k_lane is the fitted prior strength for lane baselines (see fit_prior_strengths).
     """
     base = baselines.get((champ, lane))
     if base is None:
         return 0.5
-    return shrink(base["wins"], base["games"], 0.5)
+    return shrink(base["wins"], base["games"], 0.5, k_lane)
 
 
 # ---------- step 1: count everything in one pass over the matches ----------
@@ -162,7 +163,30 @@ def empty_champion(champ_id, name):
     }
 
 
-def build_champion_files(counts, champions, item_names):
+def fit_prior_strengths(counts):
+    """Fit k for lane baselines and for matchups from the data (the "empirical" in empirical Bayes).
+
+    Each level is fitted against the level above it:
+      lane baselines: each champion-lane win rate vs 0.5
+      matchups:       each matchup win rate vs its (shrunk) lane baseline
+    """
+    baselines = counts["baselines"]
+
+    lane_cells = []
+    for c in baselines.values():
+        lane_cells.append((c["wins"], c["games"], 0.5))
+    k_lane = fit_k(lane_cells)
+
+    matchup_cells = []
+    for (champ, opp, lane), c in counts["matchups"].items():
+        prior = lane_prior(baselines, champ, lane, k_lane)
+        matchup_cells.append((c["wins"], c["games"], prior))
+    k_matchup = fit_k(matchup_cells)
+
+    return k_lane, k_matchup
+
+
+def build_champion_files(counts, champions, item_names, k_lane, k_matchup):
     """Return {champ_id: dict ready to save as that champion's JSON file}."""
     baselines = counts["baselines"]
     out = {}
@@ -191,13 +215,14 @@ def build_champion_files(counts, champions, item_names):
             "games": c["games"], "wins": c["wins"], "winrate": r3(c["wins"] / c["games"]),
         }
 
-    # population matchups, shrunk toward the champion's rate in that lane
+    # population matchups, shrunk toward the champion's (shrunk) rate in that lane,
+    # with the fitted strength k_matchup
     pop_shrunk = {}
     for (champ, opp, lane), c in counts["matchups"].items():
         if champ not in out:
             continue
-        prior = lane_prior(baselines, champ, lane)
-        shrunk = shrink(c["wins"], c["games"], prior)
+        prior = lane_prior(baselines, champ, lane, k_lane)
+        shrunk = shrink(c["wins"], c["games"], prior, k_matchup)
         pop_shrunk[(champ, opp, lane)] = shrunk
         lane_table = out[champ]["matchups"].setdefault(lane, {})
         lane_table[opp] = {
@@ -250,7 +275,7 @@ def build_champion_files(counts, champions, item_names):
             continue
         prior = pop_shrunk.get((champ, opp, lane))
         if prior is None:
-            prior = lane_prior(baselines, champ, lane)
+            prior = lane_prior(baselines, champ, lane, k_lane)
         shrunk = shrink(c["wins"], c["games"], prior)
         edge = shrunk - prior
         lane_table = out[champ]["personal"].setdefault(lane, {})
@@ -320,8 +345,13 @@ def main():
     print(f"Counting games in {RAW_DIR} ...")
     counts = count_matches(champ_id_by_key, completed)
 
+    print("Fitting prior strengths...")
+    k_lane, k_matchup = fit_prior_strengths(counts)
+    print(f"  k for lane baselines: {k_lane:g}, k for matchups: {k_matchup:g} "
+          f"(cap {K_GRID[-1]}); personal and items use {K:g}")
+
     print("Shrinking and arranging per champion...")
-    files = build_champion_files(counts, champions, item_names)
+    files = build_champion_files(counts, champions, item_names, k_lane, k_matchup)
 
     print(f"Writing JSON to {OUT_DIR} ...")
     for champ_id, data in files.items():
@@ -335,7 +365,9 @@ def main():
     index = {
         "built_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "ddragon_version": version,
-        "k": K,
+        "k": K,                   # personal layer and items
+        "k_lane": k_lane,         # fitted: lane baselines toward 0.5
+        "k_matchup": k_matchup,   # fitted: matchups toward their lane baseline
         "match_count": counts["match_count"],
         "first_game": to_date(counts["first_game"]),
         "last_game": to_date(counts["last_game"]),

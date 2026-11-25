@@ -377,7 +377,9 @@ export default function App() {
       {index && (
         <p style={{ color: "#aaa", fontSize: 12, marginTop: 32 }}>
           {index.match_count} ranked matches from {index.first_game} to {index.last_game} ·
-          patch {index.ddragon_version} · shrinkage strength K = {index.k} · updated {index.built_at}
+          patch {index.ddragon_version} · shrinkage strength K: lane {index.k_lane} and
+          matchup {index.k_matchup} (fitted from the data), personal and items {index.k} (fixed) ·
+          updated {index.built_at}
         </p>
       )}
     </div>
