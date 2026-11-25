@@ -21,6 +21,4 @@ dev = [
     "matplotlib>=3.11.1",
     "numpy>=2.5.1",
     "pandas>=3.0.5",
-    "scikit-learn>=1.9.0",
-    "scipy>=1.18.0",
 ]
