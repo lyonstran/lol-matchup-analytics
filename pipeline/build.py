@@ -61,11 +61,16 @@ def completed_item_ids(items_raw):
 
 
 def lane_prior(baselines, champ, lane):
-    """The champion's raw win rate in that lane, or 0.5 if we have none."""
+    """The champion's win rate in that lane, shrunk toward 0.5 (or 0.5 if we have none).
+
+    A baseline is a win rate from a sample too, so it gets the same treatment as
+    everything else. Unshrunk, a champion with 1 game in a lane got a 0% or 100%
+    baseline, and every matchup for it in that lane was pulled toward that.
+    """
     base = baselines.get((champ, lane))
     if base is None:
         return 0.5
-    return base["wins"] / base["games"]
+    return shrink(base["wins"], base["games"], 0.5)
 
 
 # ---------- step 1: count everything in one pass over the matches ----------
@@ -177,11 +182,13 @@ def build_champion_files(counts, champions, item_names):
         totals[champ]["games"] += c["games"]
         totals[champ]["wins"] += c["wins"]
 
+    # overall_rate is the prior for items, so it is shrunk toward 0.5 like lane baselines;
+    # the JSON still shows the raw rate next to its game count
     overall_rate = {}
     for champ, c in totals.items():
-        overall_rate[champ] = c["wins"] / c["games"]
+        overall_rate[champ] = shrink(c["wins"], c["games"], 0.5)
         out[champ]["overall"] = {
-            "games": c["games"], "wins": c["wins"], "winrate": r3(overall_rate[champ]),
+            "games": c["games"], "wins": c["wins"], "winrate": r3(c["wins"] / c["games"]),
         }
 
     # population matchups, shrunk toward the champion's rate in that lane
