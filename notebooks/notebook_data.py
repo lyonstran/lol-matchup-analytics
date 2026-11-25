@@ -113,6 +113,9 @@ def load_lane_games():
     for path in sorted(build.RAW_DIR.glob("*.json")):
         with open(path, encoding="utf-8") as f:
             match = json.load(f)
+        # skip remakes, exactly like build.py does
+        if build.is_remake(match):
+            continue
         match_id = match["metadata"]["matchId"]
         created = match["info"]["gameCreation"]
 

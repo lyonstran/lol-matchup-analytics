@@ -28,6 +28,9 @@ MY_PUUID = os.environ.get("MY_PUUID", "")
 MIN_ITEM_GAMES = 10           # champion-wide items
 MIN_MATCHUP_ITEM_GAMES = 3    # items into one specific opponent
 
+# a game this short (in seconds) is a remake, not a real game
+REMAKE_SECONDS = 300
+
 
 # ---------- small helpers ----------
 
@@ -60,6 +63,21 @@ def completed_item_ids(items_raw):
     return completed
 
 
+def is_remake(match):
+    """True for a remade game: ended by early surrender, or shorter than 5 minutes.
+
+    Riot still marks one team as the winner of a remake, but nobody really played,
+    so counting it would add a fake win and a fake loss to every table.
+    """
+    info = match["info"]
+    if info["gameDuration"] < REMAKE_SECONDS:
+        return True
+    for p in info["participants"]:
+        if p.get("gameEndedInEarlySurrender"):
+            return True
+    return False
+
+
 def lane_prior(baselines, champ, lane, k_lane):
     """The champion's win rate in that lane, shrunk toward 0.5 (or 0.5 if we have none).
 
@@ -84,12 +102,16 @@ def count_matches(champ_id_by_key, completed):
     matchup_items = {}   # (champ, opp, lane, item_id)    -> games, wins
     personal = {}        # (champ, opp, lane), your games -> games, wins
     match_count = 0
+    remakes = 0
     first_game = None
     last_game = None
 
     for path in sorted(RAW_DIR.glob("*.json")):
         with open(path, encoding="utf-8") as f:
             match = json.load(f)
+        if is_remake(match):
+            remakes += 1
+            continue
         match_count += 1
 
         created = match["info"]["gameCreation"]
@@ -135,7 +157,7 @@ def count_matches(champ_id_by_key, completed):
                 if me["puuid"] == MY_PUUID:
                     add_game(personal, key, me["win"])
 
-    print(f"  read {match_count} matches")
+    print(f"  read {match_count} matches (skipped {remakes} remakes)")
     return {
         "baselines": baselines,
         "matchups": matchups,
